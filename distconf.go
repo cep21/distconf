@@ -8,9 +8,10 @@ import (
 	"math"
 
 	"expvar"
+	"runtime"
+
 	"github.com/signalfx/golib/log"
 	"github.com/signalfx/golib/logkey"
-	"runtime"
 )
 
 // DefaultLogger is used by package structs that don't have a default logger set.
