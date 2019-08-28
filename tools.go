@@ -1,5 +1,5 @@
 // +build tools
 
-package gotemplate
+package distconf
 
 import _ "github.com/golangci/golangci-lint/cmd/golangci-lint"
