@@ -13,8 +13,12 @@ func TestFromLoaders(t *testing.T) {
 }
 
 func TestFromLoadersWithErrors(t *testing.T) {
+	counter := 0
 	c := FromLoaders([]BackingLoader{BackingLoaderFunc(func() (Reader, error) {
 		return nil, errors.New("nope")
-	})}, nil)
+	})}, func(err error, loader BackingLoader) {
+		counter++
+	})
 	assert.Equal(t, 0, len(c.readers))
+	assert.Equal(t, 1, counter)
 }
