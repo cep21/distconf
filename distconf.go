@@ -1,25 +1,26 @@
 package distconf
 
 import (
-	"sync"
-
-	"time"
-
-	"math"
-
 	"expvar"
+	"math"
 	"runtime"
-
-	"github.com/signalfx/golib/log"
-	"github.com/signalfx/golib/logkey"
+	"sync"
+	"time"
 )
 
-// DefaultLogger is used by package structs that don't have a default logger set.
-var DefaultLogger = log.Logger(log.DefaultLogger.CreateChild())
+type Hooks struct {
+	OnError func(msg string, distconfKey string, err error)
+}
+
+func (h Hooks) onError(msg string, distconfKey string, err error) {
+	if h.OnError != nil {
+		h.OnError(msg, distconfKey, err)
+	}
+}
 
 // Distconf gets configuration data from the first backing that has it
 type Distconf struct {
-	Logger  log.Logger
+	Hooks   Hooks
 	readers []Reader
 
 	varsMutex      sync.Mutex
@@ -37,7 +38,6 @@ type registeredVariableTracker struct {
 // New creates a Distconf from a list of backing readers
 func New(readers []Reader) *Distconf {
 	return &Distconf{
-		Logger:         DefaultLogger,
 		readers:        readers,
 		registeredVars: make(map[string]*registeredVariableTracker),
 		distInfos:      make(map[string]DistInfo),
@@ -88,7 +88,7 @@ func (c *Distconf) grabInfo(key string) {
 	}
 	_, file, line, ok := c.callerFunc(2)
 	if !ok {
-		c.Logger.Log(logkey.DistconfKey, key, "unable to find call for distconf")
+		c.Hooks.onError("unable to find call for distconf", key, nil)
 	}
 	info := DistInfo{
 		File: file,
@@ -150,7 +150,7 @@ func (c *Distconf) Int(key string, defaultVal int64) *Int {
 	// Note: in race conditions 's' may not be the thing actually returned
 	ret, okCast := c.createOrGet(key, s).(*intConf)
 	if !okCast {
-		c.Logger.Log(logkey.DistconfKey, key, "Registering key with multiple types!  FIX ME!!!!")
+		c.Hooks.onError("Registering key with multiple types!  FIX ME!!!!", key, nil)
 		return nil
 	}
 	return &ret.Int
@@ -168,7 +168,7 @@ func (c *Distconf) Float(key string, defaultVal float64) *Float {
 	// Note: in race conditions 's' may not be the thing actually returned
 	ret, okCast := c.createOrGet(key, s).(*floatConf)
 	if !okCast {
-		c.Logger.Log(logkey.DistconfKey, key, "Registering key with multiple types!  FIX ME!!!!")
+		c.Hooks.onError("Registering key with multiple types!  FIX ME!!!!", key, nil)
 		return nil
 	}
 	return &ret.Float
@@ -184,7 +184,7 @@ func (c *Distconf) Str(key string, defaultVal string) *Str {
 	// Note: in race conditions 's' may not be the thing actually returned
 	ret, okCast := c.createOrGet(key, s).(*strConf)
 	if !okCast {
-		c.Logger.Log(logkey.DistconfKey, key, "Registering key with multiple types!  FIX ME!!!!")
+		c.Hooks.onError("Registering key with multiple types!  FIX ME!!!!", key, nil)
 		return nil
 	}
 	return &ret.Str
@@ -209,7 +209,7 @@ func (c *Distconf) Bool(key string, defaultVal bool) *Bool {
 	// Note: in race conditions 's' may not be the thing actually returned
 	ret, okCast := c.createOrGet(key, s).(*boolConf)
 	if !okCast {
-		c.Logger.Log(logkey.DistconfKey, key, "Registering key with multiple types!  FIX ME!!!!")
+		c.Hooks.onError("Registering key with multiple types!  FIX ME!!!!", key, nil)
 		return nil
 	}
 	return &ret.Bool
@@ -223,12 +223,13 @@ func (c *Distconf) Duration(key string, defaultVal time.Duration) *Duration {
 		Duration: Duration{
 			currentVal: defaultVal.Nanoseconds(),
 		},
-		logger: log.NewContext(c.Logger).With(logkey.DistconfKey, key),
+		hooks:       c.Hooks,
+		originalKey: key,
 	}
 	// Note: in race conditions 's' may not be the thing actually returned
 	ret, okCast := c.createOrGet(key, s).(*durationConf)
 	if !okCast {
-		c.Logger.Log(logkey.DistconfKey, key, "Registering key with multiple types!  FIX ME!!!!")
+		c.Hooks.onError("Registering key with multiple types!  FIX ME!!!!", key, nil)
 		return nil
 	}
 	return &ret.Duration
@@ -255,13 +256,13 @@ func (c *Distconf) refresh(key string, configVar configVariable) bool {
 
 		v, e := backing.Get(key)
 		if e != nil {
-			c.Logger.Log(logkey.DistconfKey, key, log.Err, e, "Unable to read from backing")
+			c.Hooks.onError("Unable to read from backing", key, e)
 			continue
 		}
 		if v != nil {
 			e = configVar.Update(v)
 			if e != nil {
-				c.Logger.Log(logkey.DistconfKey, key, log.Err, e, "Invalid config bytes")
+				c.Hooks.onError("Invalid config bytes", key, e)
 			}
 			return dynamicReadersOnPath
 		}
@@ -269,20 +270,20 @@ func (c *Distconf) refresh(key string, configVar configVariable) bool {
 
 	e := configVar.Update(nil)
 	if e != nil {
-		c.Logger.Log(log.Err, e, "Unable to set bytes to nil/clear")
+		c.Hooks.onError("Unable to set bytes to nil/clear", key, e)
 	}
 
 	// If this is false, then the variable is fixed and can never change
 	return dynamicReadersOnPath
 }
 
-func (c *Distconf) watch(key string, configVar configVariable) {
+func (c *Distconf) watch(key string) {
 	for _, backing := range c.readers {
 		d, ok := backing.(Dynamic)
 		if ok {
 			err := d.Watch(key, c.onBackingChange)
 			if err != nil {
-				c.Logger.Log(logkey.DistconfKey, key, log.Err, err, "Unable to watch for config var")
+				c.Hooks.onError("Unable to watch for config var", key, err)
 			}
 		}
 	}
@@ -302,7 +303,7 @@ func (c *Distconf) createOrGet(key string, defaultVar configVariable) configVari
 	rv.hasInitialized.Do(func() {
 		dynamicOnPath := c.refresh(key, rv.distvar)
 		if dynamicOnPath {
-			c.watch(key, rv.distvar)
+			c.watch(key)
 		}
 	})
 	return rv.distvar
@@ -313,7 +314,7 @@ func (c *Distconf) onBackingChange(key string) {
 	m, exists := c.registeredVars[key]
 	c.varsMutex.Unlock()
 	if !exists {
-		c.Logger.Log(logkey.DistconfKey, key, "Backing callback on variable that doesn't exist")
+		c.Hooks.onError("Backing callback on variable that doesn't exist", key, nil)
 		return
 	}
 	c.refresh(key, m.distvar)
