@@ -13,6 +13,8 @@ type strConf struct {
 	defaultVal string
 }
 
+var _ configVariable = &strConf{}
+
 // Str is a string type config inside a Config.
 type Str struct {
 	watches []StrWatch
@@ -60,6 +62,6 @@ func (s *strConf) GenericGetDefault() interface{} {
 	return s.defaultVal
 }
 
-func (s *strConf) Type() DistType {
-	return StrType
+func (s *strConf) Type() distType {
+	return strType
 }

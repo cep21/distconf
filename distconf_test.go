@@ -42,8 +42,8 @@ func (a *allErrorconfigVariable) GenericGet() interface{} {
 func (a *allErrorconfigVariable) GenericGetDefault() interface{} {
 	return errNope
 }
-func (a *allErrorconfigVariable) Type() DistType {
-	return IntType
+func (a *allErrorconfigVariable) Type() distType {
+	return intType
 }
 
 func makeConf() (ReaderWriter, *Distconf) {
@@ -239,7 +239,7 @@ func TestDistconfErrorBackings(t *testing.T) {
 
 }
 
-func testInfo(t *testing.T, dat map[string]DistInfo, key string, val interface{}, dtype DistType) {
+func testInfo(t *testing.T, dat map[string]distInfo, key string, val interface{}, dtype distType) {
 	v, ok := dat[key]
 	assert.True(t, ok)
 	assert.NotEqual(t, v.Line, 0)
@@ -270,15 +270,15 @@ func TestDistconf_Info(t *testing.T) {
 	x := conf.Info()
 	assert.NotNil(t, x)
 	assert.NotNil(t, x.String())
-	var dat map[string]DistInfo
+	var dat map[string]distInfo
 	err := json.Unmarshal([]byte(x.String()), &dat)
 	assert.NoError(t, err)
 	assert.Equal(t, len(dat), 5)
-	testInfo(t, dat, "testbool", float64(1), BoolType)
-	testInfo(t, dat, "teststr", "123", StrType)
-	testInfo(t, dat, "testint", float64(12), IntType)
-	testInfo(t, dat, "testdur", time.Millisecond.String(), DurationType)
-	testInfo(t, dat, "testfloat", float64(1.2), FloatType)
+	testInfo(t, dat, "testbool", float64(1), boolType)
+	testInfo(t, dat, "teststr", "123", strType)
+	testInfo(t, dat, "testint", float64(12), intType)
+	testInfo(t, dat, "testdur", time.Millisecond.String(), durationType)
+	testInfo(t, dat, "testfloat", float64(1.2), floatType)
 
 	_, conf = makeConf()
 	c := int64(0)

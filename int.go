@@ -15,6 +15,8 @@ type intConf struct {
 	defaultVal int64
 }
 
+var _ configVariable = &intConf{}
+
 // Int is an integer type config inside a Config.
 type Int struct {
 	mutex   sync.Mutex
@@ -66,6 +68,6 @@ func (c *intConf) GenericGetDefault() interface{} {
 	return c.defaultVal
 }
 
-func (c *intConf) Type() DistType {
-	return IntType
+func (c *intConf) Type() distType {
+	return intType
 }

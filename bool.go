@@ -14,6 +14,8 @@ type boolConf struct {
 	defaultVal int32
 }
 
+var _ configVariable = &boolConf{}
+
 // Bool is a Boolean type config inside a Config.  It uses strconv.ParseBool to parse the conf
 // contents as either true for false
 type Bool struct {
@@ -69,6 +71,6 @@ func (s *boolConf) GenericGetDefault() interface{} {
 	return s.defaultVal
 }
 
-func (s *boolConf) Type() DistType {
-	return BoolType
+func (s *boolConf) Type() distType {
+	return boolType
 }
