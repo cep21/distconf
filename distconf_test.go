@@ -248,6 +248,15 @@ func testInfo(t *testing.T, dat map[string]DistInfo, key string, val interface{}
 	assert.Equal(t, v.DefaultValue, val)
 }
 
+func TestHooks(t *testing.T) {
+	c := 0
+	h := Hooks{OnError: func(_ string, _ string, _ error) {
+		c++
+	}}
+	h.onError("", "", nil)
+	assert.Equal(t, 1, c)
+}
+
 func TestDistconf_Info(t *testing.T) {
 	_, conf := makeConf()
 	defer conf.Close()
