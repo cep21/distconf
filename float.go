@@ -16,6 +16,8 @@ type floatConf struct {
 	defaultVal float64
 }
 
+var _ configVariable = &floatConf{}
+
 // Float is an float type config inside a Config.
 type Float struct {
 	mutex   sync.Mutex
@@ -68,6 +70,6 @@ func (c *floatConf) GenericGetDefault() interface{} {
 	return c.defaultVal
 }
 
-func (c *floatConf) Type() DistType {
-	return FloatType
+func (c *floatConf) Type() distType {
+	return floatType
 }

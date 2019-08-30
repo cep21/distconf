@@ -26,7 +26,7 @@ type Distconf struct {
 	varsMutex      sync.Mutex
 	infoMutex      sync.RWMutex
 	registeredVars map[string]*registeredVariableTracker
-	distInfos      map[string]DistInfo
+	distInfos      map[string]distInfo
 	callerFunc     func(int) (uintptr, string, int, bool)
 }
 
@@ -40,7 +40,7 @@ func New(readers []Reader) *Distconf {
 	return &Distconf{
 		readers:        readers,
 		registeredVars: make(map[string]*registeredVariableTracker),
-		distInfos:      make(map[string]DistInfo),
+		distInfos:      make(map[string]distInfo),
 	}
 }
 
@@ -49,7 +49,7 @@ type configVariable interface {
 	// Get but on an interface return.  Oh how I miss you templates.
 	GenericGet() interface{}
 	GenericGetDefault() interface{}
-	Type() DistType
+	Type() distType
 }
 
 type noopCloser struct {
@@ -58,28 +58,27 @@ type noopCloser struct {
 func (n *noopCloser) Close() {
 }
 
-// DistType is used to type each of the DistInfos
-type DistType int
+type distType int
 
 const (
 	// StrType is type Str
-	StrType DistType = iota
+	strType distType = iota
 	// BoolType is type Bool
-	BoolType
+	boolType
 	// FloatType is type Float
-	FloatType
+	floatType
 	// DurationType is type Duration
-	DurationType
+	durationType
 	// IntType is type Int
-	IntType
+	intType
 )
 
-// DistInfo is useful to unmarshal/marshal the Info expvar
-type DistInfo struct {
+// distInfo is useful to unmarshal/marshal the Info expvar
+type distInfo struct {
 	File         string      `json:"file"`
 	Line         int         `json:"line"`
 	DefaultValue interface{} `json:"default_value"`
-	DistType     DistType    `json:"dist_type"`
+	DistType     distType    `json:"dist_type"`
 }
 
 func (c *Distconf) grabInfo(key string) {
@@ -90,7 +89,7 @@ func (c *Distconf) grabInfo(key string) {
 	if !ok {
 		c.Hooks.onError("unable to find call for distconf", key, nil)
 	}
-	info := DistInfo{
+	info := distInfo{
 		File: file,
 		Line: line,
 	}
@@ -121,11 +120,11 @@ func (c *Distconf) Info() expvar.Var {
 		c.infoMutex.RLock()
 		defer c.infoMutex.RUnlock()
 
-		m := make(map[string]DistInfo, len(c.distInfos))
+		m := make(map[string]distInfo, len(c.distInfos))
 		for k, i := range c.distInfos {
 			v, ok := c.registeredVars[k]
 			if ok {
-				v := DistInfo{
+				v := distInfo{
 					File:         i.File,
 					Line:         i.Line,
 					DefaultValue: v.distvar.GenericGetDefault(),
