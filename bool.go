@@ -33,7 +33,7 @@ func (s *boolConf) Update(newValue []byte) error {
 		atomic.StoreInt32(&s.currentVal, s.defaultVal)
 	} else {
 		newValueStr := string(newValue)
-		if parsedBool, err := strconv.ParseBool(newValueStr); err != nil {
+		if parsedBool, err := strconv.ParseBool(newValueStr); err != nil { // nolint
 			atomic.StoreInt32(&s.currentVal, s.defaultVal)
 		} else if parsedBool {
 			atomic.StoreInt32(&s.currentVal, 1)

@@ -1,6 +1,10 @@
 run:
   deadline: 3m
 
+linters-settings:
+  dupl:
+    threshold: 200
+
 linters:
   disable-all: true
   enable:
