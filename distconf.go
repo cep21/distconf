@@ -1,6 +1,7 @@
 package distconf
 
 import (
+	"context"
 	"expvar"
 	"math"
 	"runtime"
@@ -50,12 +51,6 @@ type configVariable interface {
 	GenericGet() interface{}
 	GenericGetDefault() interface{}
 	Type() distType
-}
-
-type noopCloser struct {
-}
-
-func (n *noopCloser) Close() {
 }
 
 type distType int
@@ -234,13 +229,20 @@ func (c *Distconf) Duration(key string, defaultVal time.Duration) *Duration {
 	return &ret.Duration
 }
 
-// Close this config framework's readers.  Config variable results are undefined after this call.
-func (c *Distconf) Close() {
+// Shutdown this config framework's readers.  Config variable results are undefined after this call.
+// Returns the error of the first reader to return an error.
+func (c *Distconf) Shutdown(ctx context.Context) error {
 	c.varsMutex.Lock()
 	defer c.varsMutex.Unlock()
+	var ret error
 	for _, backing := range c.readers {
-		backing.Close()
+		if s, ok := backing.(Shutdownable); ok {
+			if err := s.Shutdown(ctx); err != nil {
+				ret = err
+			}
+		}
 	}
+	return ret
 }
 
 func (c *Distconf) refresh(key string, configVar configVariable) bool {
@@ -253,7 +255,7 @@ func (c *Distconf) refresh(key string, configVar configVariable) bool {
 			}
 		}
 
-		v, e := backing.Get(key)
+		v, e := backing.Read(key)
 		if e != nil {
 			c.Hooks.onError("Unable to read from backing", key, e)
 			continue
@@ -321,24 +323,26 @@ func (c *Distconf) onBackingChange(key string) {
 
 // Reader can get a []byte value for a config key
 type Reader interface {
-	Get(key string) ([]byte, error)
-	Close()
+	// Read should lookup a key inside the configuration source.  This function should
+	// be thread safe, but is allowed to be slow or block.  That block will only happen
+	// on application startup.  An error will skip this source and fall back to another
+	// source in the chain.
+	Read(key string) ([]byte, error)
 }
 
-// Writer can modify Config properties
-type Writer interface {
-	Write(key string, value []byte) error
+// Shutdownable is an optional interface of Reader that allows it to be gracefully shutdown.
+type Shutdownable interface {
+	// Shutdown should signal to a reader it is no longer needed by Distconf. It should expect
+	// to no longer require to return more recent values to distconf.
+	Shutdown(ctx context.Context) error
 }
 
 type backingCallbackFunction func(string)
 
 // A Dynamic config can change what it thinks a value is over time.
 type Dynamic interface {
+	// Watch a key for a change in value.  When the value for that key changes,
+	// execute 'callback'.  It is ok to execute callback more times than needed.
+	// Each call to callback will probably trigger future calls to Get()
 	Watch(key string, callback backingCallbackFunction) error
-}
-
-// A ReaderWriter can both read and write configuration information
-type ReaderWriter interface {
-	Reader
-	Writer
 }

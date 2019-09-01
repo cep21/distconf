@@ -2,15 +2,15 @@ package distconf
 
 import "sync"
 
-type memConfig struct {
+type Mem struct {
 	vals    map[string][]byte
 	watches map[string][]backingCallbackFunction
-	mu      sync.Mutex
+	mu      sync.RWMutex
 }
 
-func (m *memConfig) Get(key string) ([]byte, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+func (m *Mem) Read(key string) ([]byte, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	b, exists := m.vals[key]
 	if !exists {
 		return nil, nil
@@ -18,8 +18,11 @@ func (m *memConfig) Get(key string) ([]byte, error) {
 	return b, nil
 }
 
-func (m *memConfig) Write(key string, value []byte) error {
+func (m *Mem) Write(key string, value []byte) error {
 	m.mu.Lock()
+	if m.vals == nil {
+		m.vals = make(map[string][]byte)
+	}
 	if value == nil {
 		delete(m.vals, key)
 	} else {
@@ -33,31 +36,16 @@ func (m *memConfig) Write(key string, value []byte) error {
 	return nil
 }
 
-func (m *memConfig) Watch(key string, callback backingCallbackFunction) error {
+func (m *Mem) Watch(key string, callback backingCallbackFunction) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.watches == nil {
+		m.watches = make(map[string][]backingCallbackFunction)
+	}
 	_, existing := m.watches[key]
 	if !existing {
 		m.watches[key] = []backingCallbackFunction{}
 	}
 	m.watches[key] = append(m.watches[key], callback)
 	return nil
-}
-
-func (m *memConfig) Close() {
-}
-
-// Mem creates a memory config
-func Mem() ReaderWriter {
-	return &memConfig{
-		vals:    make(map[string][]byte),
-		watches: make(map[string][]backingCallbackFunction),
-	}
-}
-
-// MemLoader is a helper for loading a memory conf
-func MemLoader() BackingLoader {
-	return BackingLoaderFunc(func() (Reader, error) {
-		return Mem(), nil
-	})
 }
