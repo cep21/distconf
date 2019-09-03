@@ -74,8 +74,9 @@ call `distconf.Float` once, then call `Get` on that value while your application
 
 ```go
     func ExampleDistconf_defaults() {
+        ctx := context.Background()
         d := distconf.Distconf{}
-        x := d.Float("value", 1.1)
+        x := d.Float(ctx, "value", 1.1)
         fmt.Println(x.Get())
         // Output: 1.1
     }
