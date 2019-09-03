@@ -24,7 +24,7 @@ func (m *allErrorBacking) Write(key string, value []byte) error {
 	return errNope
 }
 
-func (m *allErrorBacking) Watch(key string, callback backingCallbackFunction) error {
+func (m *allErrorBacking) Watch(key string, callback func()) error {
 	return errNope
 }
 
@@ -241,7 +241,7 @@ func TestDistconfErrorBackings(t *testing.T) {
 	assert.Equal(t, int64(1), iVal.Get())
 
 	assert.NotPanics(t, func() {
-		conf.onBackingChange("not_in_map")
+		conf.Refresh("not_in_map")
 	})
 
 	assert.NotPanics(t, func() {

@@ -3,6 +3,7 @@ package distconf_test
 import (
 	"expvar"
 	"fmt"
+
 	"github.com/cep21/distconf"
 )
 
@@ -47,7 +48,7 @@ func ExampleDistconf_Float() {
 
 func ExampleDistconf_defaults() {
 	d := distconf.Distconf{
-		Readers: []distconf.Reader{&distconf.Mem{}},
+		Readers: []distconf.Reader{},
 	}
 	x := d.Float("value", 1.1)
 	fmt.Println(x.Get())

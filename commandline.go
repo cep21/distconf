@@ -10,6 +10,8 @@ type CommandLine struct {
 	Source []string
 }
 
+var _ Reader = &CommandLine{}
+
 func (p *CommandLine) Read(key string) ([]byte, error) {
 	if p.Source == nil {
 		p.Source = os.Args

@@ -4,9 +4,12 @@ import "sync"
 
 type Mem struct {
 	vals    map[string][]byte
-	watches map[string][]backingCallbackFunction
+	watches map[string]func()
 	mu      sync.RWMutex
 }
+
+var _ Reader = &Mem{}
+var _ Watcher = &Mem{}
 
 func (m *Mem) Read(key string) ([]byte, error) {
 	m.mu.RLock()
@@ -29,23 +32,19 @@ func (m *Mem) Write(key string, value []byte) error {
 		m.vals[key] = value
 	}
 	m.mu.Unlock()
-
-	for _, calls := range m.watches[key] {
-		calls(key)
+	if toExec, exists := m.watches[key]; exists {
+		toExec()
 	}
+
 	return nil
 }
 
-func (m *Mem) Watch(key string, callback backingCallbackFunction) error {
+func (m *Mem) Watch(key string, callback func()) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.watches == nil {
-		m.watches = make(map[string][]backingCallbackFunction)
+		m.watches = make(map[string]func())
 	}
-	_, existing := m.watches[key]
-	if !existing {
-		m.watches[key] = []backingCallbackFunction{}
-	}
-	m.watches[key] = append(m.watches[key], callback)
+	m.watches[key] = callback
 	return nil
 }

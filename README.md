@@ -31,11 +31,13 @@ Distconf does all that
 
 ```go
     func ExampleDistconf_Float() {
-        m := distconf.Mem()
-        m.Write("value", []byte("3.2"))
-        d := distconf.New([]distconf.Reader{
-            m,
-        })
+        m := distconf.Mem{}
+        if err := m.Write("value", []byte("3.2")); err != nil {
+            panic("never happens")
+        }
+        d := distconf.Distconf{
+            Readers: []distconf.Reader{&m},
+        }
         x := d.Float("value", 1.0)
         fmt.Println(x.Get())
         // Output: 3.2
@@ -46,12 +48,12 @@ Distconf does all that
 
 ```go
     func ExampleDistconf_defaults() {
-        d := distconf.New([]distconf.Reader{
-            distconf.Mem(),
-        })
-        x := d.Float("value", 1.0)
+        d := distconf.Distconf{
+            Readers: []distconf.Reader{},
+        }
+        x := d.Float("value", 1.1)
         fmt.Println(x.Get())
-        // Output: 1.0
+        // Output: 1.1
     }
 ```
 
@@ -59,16 +61,18 @@ Distconf does all that
 
 ```go
     func ExampleFloat_Watch() {
-        m := distconf.Mem()
-        d := distconf.New([]distconf.Reader{
-            m,
-        })
+        m := distconf.Mem{}
+        d := distconf.Distconf{
+            Readers: []distconf.Reader{&m},
+        }
         x := d.Float("value", 1.0)
         x.Watch(func(f *distconf.Float, oldValue float64) {
             fmt.Println("Change from", oldValue, "to", f.Get())
         })
         fmt.Println("first", x.Get())
-        m.Write("value", []byte("2.1"))
+        if err := m.Write("value", []byte("2.1")); err != nil {
+            panic("never happens")
+        }
         fmt.Println("second", x.Get())
         // Output: first 1
         // Change from 1 to 2.1
@@ -83,12 +87,36 @@ The core component of distconf is an interface with only one method.
 ```go
     // Reader can get a []byte value for a config key
     type Reader interface {
-        Get(key string) ([]byte, error)
+        // Read should lookup a key inside the configuration source.  This function should
+        // be thread safe, but is allowed to be slow or block.  That block will only happen
+        // on application startup.  An error will skip this source and fall back to another
+        // source in the chain.
+        Read(key string) ([]byte, error)
     }
 ```
 
+From this simple interface, we can derive the rest of distconf.  Readers are used by Distconf to fetch configuration
+information.
 
+Some readers, such as zookeeper, allow you to watch for specific keys and get notifications live when they change.  To
+support this, readers can also optionally implement the Watcher interface.
 
+```go
+    // A Watcher config can change what it thinks a value is over time.
+    type Watcher interface {
+        // Watch a key for a change in value.  When the value for that key changes,
+        // execute 'callback'.  It is ok to execute callback more times than needed.
+        // Each call to callback will probably trigger future calls to Get().
+        // Watch may be called multiple times for a single key.  Only the latest callback needs to be executed.
+        // It is possible callback may itself call watch.  Be careful with locking.
+        // If callback is nil, then we are trying to remove a previously registered callback.
+        Watch(key string, callback func()) error
+    }
+```
+
+Any Reader that implements Watcher will get a Watch() function call whenever a key should be watched for changers.  That
+Watcher should then forever notify Distconf whenever that key's value changes by executing callback.  When you're done
+with distconf, call `Shutdown` to deregister watches.
 
 # Contributing
 

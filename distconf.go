@@ -10,6 +10,7 @@ import (
 )
 
 // Hooks are optional callbacks that let you get information about the internal workings and errors of distconf.
+// All functions of Hooks should be thread safe.
 type Hooks struct {
 	// OnError is called whenever there is an error doing something internally to distconf, but the error itself
 	// cannot be directly returned to the caller.
@@ -24,18 +25,20 @@ func (h Hooks) onError(msg string, distconfKey string, err error) {
 }
 
 // Distconf gets configuration data from the first backing that has it.  It is a race condition to modify Hooks
-// or Readers after you've started using Distconf.
+// or Readers after you've started using Distconf.  All public functions of Distconf are thread safe.
 type Distconf struct {
 	// Hooks are optional callbacks that let you get information about the internal workings and errors of distconf.
-	Hooks   Hooks
+	Hooks Hooks
 	// Readers are an ordered list of backends for DistConf to get configuration information from.  The list
 	// order is important as information from a first backend will be returned before the later ones.
 	Readers []Reader
 
 	varsMutex      sync.Mutex
 	infoMutex      sync.RWMutex
+	registeredWatchesMutex sync.Mutex
 	registeredVars map[string]*registeredVariableTracker
 	distInfos      map[string]distInfo
+	registeredWatches map[string][]Watcher
 	callerFunc     func(int) (uintptr, string, int, bool)
 }
 
@@ -235,11 +238,14 @@ func (c *Distconf) Duration(key string, defaultVal time.Duration) *Duration {
 // Returns the error of the first reader to return an error.
 func (c *Distconf) Shutdown(ctx context.Context) error {
 	c.varsMutex.Lock()
+	c.registeredWatchesMutex.Lock()
 	defer c.varsMutex.Unlock()
+	defer c.registeredWatchesMutex.Unlock()
 	var ret error
-	for _, backing := range c.Readers {
-		if s, ok := backing.(Shutdownable); ok {
-			if err := s.Shutdown(ctx); err != nil {
+	for key, watches := range c.registeredWatches {
+		for _, watch := range watches {
+			if err := watch.Watch(key, nil); err != nil {
+				c.Hooks.onError("error unregistering watch", key, err)
 				ret = err
 			}
 		}
@@ -247,14 +253,34 @@ func (c *Distconf) Shutdown(ctx context.Context) error {
 	return ret
 }
 
-func (c *Distconf) refresh(key string, configVar configVariable) bool {
-	dynamicReadersOnPath := false
+func (c *Distconf) registerWatches(key string, watches []Watcher) {
+	c.registeredWatchesMutex.Lock()
+	if c.registeredWatches == nil {
+		c.registeredWatches = make(map[string][]Watcher)
+	}
+	for _, w := range watches {
+		c.registeredWatches[key] = append(c.registeredWatches[key], w)
+	}
+	// Unlock early so we don't get in deadlock if backing.Watch() somehow executes code that gets back here
+	c.registeredWatchesMutex.Unlock()
+	for _, backing := range watches {
+		err := backing.Watch(key, func() {
+			c.Refresh(key)
+		})
+		if err != nil {
+			c.Hooks.onError("Unable to watch for config var", key, err)
+		}
+	}
+}
+
+func (c *Distconf) refresh(key string, configVar configVariable) {
+	var dynamicReadersOnPath []Watcher
+	defer func() {
+		c.registerWatches(key, dynamicReadersOnPath)
+	}()
 	for _, backing := range c.Readers {
-		if !dynamicReadersOnPath {
-			_, ok := backing.(Dynamic)
-			if ok {
-				dynamicReadersOnPath = true
-			}
+		if asW, ok := backing.(Watcher); ok {
+			dynamicReadersOnPath = append(dynamicReadersOnPath, asW)
 		}
 
 		v, e := backing.Read(key)
@@ -267,29 +293,17 @@ func (c *Distconf) refresh(key string, configVar configVariable) bool {
 			if e != nil {
 				c.Hooks.onError("Invalid config bytes", key, e)
 			}
-			return dynamicReadersOnPath
+			return
 		}
 	}
 
+	// None of the readers have this value.  Update it to nil (default).
 	e := configVar.Update(nil)
 	if e != nil {
 		c.Hooks.onError("Unable to set bytes to nil/clear", key, e)
 	}
 
-	// If this is false, then the variable is fixed and can never change
-	return dynamicReadersOnPath
-}
-
-func (c *Distconf) watch(key string) {
-	for _, backing := range c.Readers {
-		d, ok := backing.(Dynamic)
-		if ok {
-			err := d.Watch(key, c.onBackingChange)
-			if err != nil {
-				c.Hooks.onError("Unable to watch for config var", key, err)
-			}
-		}
-	}
+	return
 }
 
 func (c *Distconf) createOrGet(key string, defaultVar configVariable) configVariable {
@@ -307,15 +321,15 @@ func (c *Distconf) createOrGet(key string, defaultVar configVariable) configVari
 	c.varsMutex.Unlock()
 
 	rv.hasInitialized.Do(func() {
-		dynamicOnPath := c.refresh(key, rv.distvar)
-		if dynamicOnPath {
-			c.watch(key)
-		}
+		c.refresh(key, rv.distvar)
 	})
 	return rv.distvar
 }
 
-func (c *Distconf) onBackingChange(key string) {
+// Refresh a single key from readers.  This will force a blocking Read from the Readers, in order, until one of them
+// has the key.  It will then update the distconf value for that key and trigger any update callbacks.  You do not
+// generally need to call this.  If your backends implement Watcher, they will trigger this for you.
+func (c *Distconf) Refresh(key string) {
 	c.varsMutex.Lock()
 	m, exists := c.registeredVars[key]
 	c.varsMutex.Unlock()
@@ -331,7 +345,7 @@ type Reader interface {
 	// Read should lookup a key inside the configuration source.  This function should
 	// be thread safe, but is allowed to be slow or block.  That block will only happen
 	// on application startup.  An error will skip this source and fall back to another
-	// source in the chain.
+	// source in the chain.  If the value is not inside this reader, return nil, nil.
 	Read(key string) ([]byte, error)
 }
 
@@ -342,12 +356,13 @@ type Shutdownable interface {
 	Shutdown(ctx context.Context) error
 }
 
-type backingCallbackFunction func(string)
-
-// A Dynamic config can change what it thinks a value is over time.
-type Dynamic interface {
+// A Watcher config can change what it thinks a value is over time.
+type Watcher interface {
 	// Watch a key for a change in value.  When the value for that key changes,
 	// execute 'callback'.  It is ok to execute callback more times than needed.
-	// Each call to callback will probably trigger future calls to Get()
-	Watch(key string, callback backingCallbackFunction) error
+	// Each call to callback will probably trigger future calls to Get().
+	// Watch may be called multiple times for a single key.  Only the latest callback needs to be executed.
+	// It is possible callback may itself call watch.  Be careful with locking.
+	// If callback is nil, then we are trying to remove a previously registered callback.
+	Watch(key string, callback func()) error
 }
