@@ -7,65 +7,64 @@ import (
 )
 
 func ExampleDistconf() {
-	m := distconf.Mem()
+	m := distconf.Mem{}
 	if err := m.Write("value", []byte("true")); err != nil {
 		panic("never happens")
 	}
-	d := distconf.New([]distconf.Reader{
-		m,
-	})
-	defer d.Close()
+	d := distconf.Distconf{
+		Readers: []distconf.Reader{&m},
+	}
 	x := d.Bool("value", false)
 	fmt.Println(x.Get())
 	// Output: true
 }
 
 func ExampleDistconf_Bool() {
-	m := distconf.Mem()
+	m := distconf.Mem{}
 	if err := m.Write("value", []byte("true")); err != nil {
 		panic("never happens")
 	}
-	d := distconf.New([]distconf.Reader{
-		m,
-	})
+	d := distconf.Distconf{
+		Readers: []distconf.Reader{&m},
+	}
 	x := d.Bool("value", false)
 	fmt.Println(x.Get())
 	// Output: true
 }
 
 func ExampleDistconf_Float() {
-	m := distconf.Mem()
+	m := distconf.Mem{}
 	if err := m.Write("value", []byte("3.2")); err != nil {
 		panic("never happens")
 	}
-	d := distconf.New([]distconf.Reader{
-		m,
-	})
+	d := distconf.Distconf{
+		Readers: []distconf.Reader{&m},
+	}
 	x := d.Float("value", 1.0)
 	fmt.Println(x.Get())
 	// Output: 3.2
 }
 
 func ExampleDistconf_defaults() {
-	d := distconf.New([]distconf.Reader{
-		distconf.Mem(),
-	})
-	x := d.Float("value", 1.0)
+	d := distconf.Distconf{
+		Readers: []distconf.Reader{&distconf.Mem{}},
+	}
+	x := d.Float("value", 1.1)
 	fmt.Println(x.Get())
-	// Output: 1.0
+	// Output: 1.1
 }
 
 func ExampleDistconf_Var() {
-	d := distconf.New([]distconf.Reader{})
+	d := distconf.Distconf{}
 	expvar.Publish("distconf", d.Var())
 	// Output:
 }
 
 func ExampleFloat_Watch() {
-	m := distconf.Mem()
-	d := distconf.New([]distconf.Reader{
-		m,
-	})
+	m := distconf.Mem{}
+	d := distconf.Distconf{
+		Readers: []distconf.Reader{&m},
+	}
 	x := d.Float("value", 1.0)
 	x.Watch(func(f *distconf.Float, oldValue float64) {
 		fmt.Println("Change from", oldValue, "to", f.Get())

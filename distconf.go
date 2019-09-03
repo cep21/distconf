@@ -22,7 +22,7 @@ func (h Hooks) onError(msg string, distconfKey string, err error) {
 // Distconf gets configuration data from the first backing that has it
 type Distconf struct {
 	Hooks   Hooks
-	readers []Reader
+	Readers []Reader
 
 	varsMutex      sync.Mutex
 	infoMutex      sync.RWMutex
@@ -34,15 +34,6 @@ type Distconf struct {
 type registeredVariableTracker struct {
 	distvar        configVariable
 	hasInitialized sync.Once
-}
-
-// New creates a Distconf from a list of backing readers
-func New(readers []Reader) *Distconf {
-	return &Distconf{
-		readers:        readers,
-		registeredVars: make(map[string]*registeredVariableTracker),
-		distInfos:      make(map[string]distInfo),
-	}
 }
 
 type configVariable interface {
@@ -90,6 +81,9 @@ func (c *Distconf) grabInfo(key string) {
 	}
 	c.infoMutex.Lock()
 	defer c.infoMutex.Unlock()
+	if c.distInfos == nil {
+		c.distInfos = make(map[string]distInfo)
+	}
 	c.distInfos[key] = info
 }
 
@@ -229,13 +223,13 @@ func (c *Distconf) Duration(key string, defaultVal time.Duration) *Duration {
 	return &ret.Duration
 }
 
-// Shutdown this config framework's readers.  Config variable results are undefined after this call.
+// Shutdown this config framework's Readers.  Config variable results are undefined after this call.
 // Returns the error of the first reader to return an error.
 func (c *Distconf) Shutdown(ctx context.Context) error {
 	c.varsMutex.Lock()
 	defer c.varsMutex.Unlock()
 	var ret error
-	for _, backing := range c.readers {
+	for _, backing := range c.Readers {
 		if s, ok := backing.(Shutdownable); ok {
 			if err := s.Shutdown(ctx); err != nil {
 				ret = err
@@ -247,7 +241,7 @@ func (c *Distconf) Shutdown(ctx context.Context) error {
 
 func (c *Distconf) refresh(key string, configVar configVariable) bool {
 	dynamicReadersOnPath := false
-	for _, backing := range c.readers {
+	for _, backing := range c.Readers {
 		if !dynamicReadersOnPath {
 			_, ok := backing.(Dynamic)
 			if ok {
@@ -279,7 +273,7 @@ func (c *Distconf) refresh(key string, configVar configVariable) bool {
 }
 
 func (c *Distconf) watch(key string) {
-	for _, backing := range c.readers {
+	for _, backing := range c.Readers {
 		d, ok := backing.(Dynamic)
 		if ok {
 			err := d.Watch(key, c.onBackingChange)
@@ -296,6 +290,9 @@ func (c *Distconf) createOrGet(key string, defaultVar configVariable) configVari
 	if !exists {
 		rv = &registeredVariableTracker{
 			distvar: defaultVar,
+		}
+		if c.registeredVars == nil {
+			c.registeredVars = make(map[string]*registeredVariableTracker)
 		}
 		c.registeredVars[key] = rv
 	}
