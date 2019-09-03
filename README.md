@@ -27,18 +27,44 @@ Distconf does all that
 
 # Usage
 
-## Getting a float value from distconf
+The correct way to use distconf is to get a configuration value once from it, then either pass that value into your
+application code or register a watch to update your application when the value changes.  For example, for type Float
+call `distconf.Float` once, then call `Get` on that value while your application is live.
 
+## Normal example with for loop
 ```go
-    func ExampleDistconf_Float() {
+    func ExampleFloat_Get_inloop() {
+        ctx := context.Background()
         m := distconf.Mem{}
-        if err := m.Write("value", []byte("3.2")); err != nil {
+        if err := m.Write(ctx, "value", []byte("2.0")); err != nil {
             panic("never happens")
         }
         d := distconf.Distconf{
             Readers: []distconf.Reader{&m},
         }
-        x := d.Float("value", 1.0)
+        x := d.Float(ctx, "value", 1.0)
+        sum := 0.0
+        for i := 0 ;i < 1000; i++ {
+            sum += x.Get()
+        }
+        fmt.Println(sum)
+        // Output: 2000
+    }
+```
+
+## Getting a float value from distconf
+
+```go
+    func ExampleDistconf_Float() {
+        ctx := context.Background()
+        m := distconf.Mem{}
+        if err := m.Write(ctx, "value", []byte("3.2")); err != nil {
+            panic("never happens")
+        }
+        d := distconf.Distconf{
+            Readers: []distconf.Reader{&m},
+        }
+        x := d.Float(ctx, "value", 1.0)
         fmt.Println(x.Get())
         // Output: 3.2
     }
@@ -59,16 +85,17 @@ Distconf does all that
 
 ```go
     func ExampleFloat_Watch() {
+        ctx := context.Background()
         m := distconf.Mem{}
         d := distconf.Distconf{
             Readers: []distconf.Reader{&m},
         }
-        x := d.Float("value", 1.0)
+        x := d.Float(ctx, "value", 1.0)
         x.Watch(func(f *distconf.Float, oldValue float64) {
             fmt.Println("Change from", oldValue, "to", f.Get())
         })
         fmt.Println("first", x.Get())
-        if err := m.Write("value", []byte("2.1")); err != nil {
+        if err := m.Write(ctx, "value", []byte("2.1")); err != nil {
             panic("never happens")
         }
         fmt.Println("second", x.Get())
@@ -80,6 +107,14 @@ Distconf does all that
 
 # Design Rational
 
+The primary design goals of distconf are:
+
+* Obey best practices around lack of globals or reflection
+* Have small core interfaces with very few functions
+* Allow fast, atomic fetches of values, allowing them to be used in tight loops
+* Allow registered updates of values as they change
+* Minimal external dependencies
+
 The core component of distconf is an interface with only one method.
 
 ```go
@@ -89,15 +124,13 @@ The core component of distconf is an interface with only one method.
         // be thread safe, but is allowed to be slow or block.  That block will only happen
         // on application startup.  An error will skip this source and fall back to another
         // source in the chain.
-        Read(key string) ([]byte, error)
+        Read(ctx context.Context, key string) ([]byte, error)
     }
 ```
 
 From this simple interface, we can derive the rest of distconf.  Readers are used by Distconf to fetch configuration
-information.
-
-Some readers, such as zookeeper, allow you to watch for specific keys and get notifications live when they change.  To
-support this, readers can also optionally implement the Watcher interface.
+information.  Some readers, such as zookeeper, allow you to watch for specific keys and get notifications live when they
+change.  To support this, readers can also optionally implement the Watcher interface.
 
 ```go
     // A Watcher config can change what it thinks a value is over time.
@@ -108,13 +141,13 @@ support this, readers can also optionally implement the Watcher interface.
         // Watch may be called multiple times for a single key.  Only the latest callback needs to be executed.
         // It is possible callback may itself call watch.  Be careful with locking.
         // If callback is nil, then we are trying to remove a previously registered callback.
-        Watch(key string, callback func()) error
+        Watch(ctx context.Context, key string, callback func()) error
     }
 ```
 
-Any Reader that implements Watcher will get a Watch() function call whenever a key should be watched for changers.  That
+Any Reader that implements Watcher will get a Watch() function call whenever a key should be watched for changes.  That
 Watcher should then forever notify Distconf whenever that key's value changes by executing callback.  When you're done
-with distconf, call `Shutdown` to deregister watches.
+with distconf, call `Shutdown` to deregister watches.  It will try to exit early if context is terminated.
 
 # Contributing
 
