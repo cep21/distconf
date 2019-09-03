@@ -1,6 +1,7 @@
 package distconf
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -15,7 +16,7 @@ type allErrorBacking struct {
 
 var errNope = errors.New("nope")
 
-func (m *allErrorBacking) Get(key string) ([]byte, error) {
+func (m *allErrorBacking) Read(key string) ([]byte, error) {
 	return nil, errNope
 }
 
@@ -25,9 +26,6 @@ func (m *allErrorBacking) Write(key string, value []byte) error {
 
 func (m *allErrorBacking) Watch(key string, callback backingCallbackFunction) error {
 	return errNope
-}
-
-func (m *allErrorBacking) Close() {
 }
 
 type allErrorconfigVariable struct {
@@ -46,15 +44,26 @@ func (a *allErrorconfigVariable) Type() distType {
 	return intType
 }
 
+type ReaderWriter interface {
+	Reader
+	Write(key string, value []byte) error
+}
+
 func makeConf() (ReaderWriter, *Distconf) {
-	memConf := Mem()
-	conf := New([]Reader{memConf})
+	memConf := &Mem{}
+	conf := &Distconf{
+		Readers: []Reader{memConf},
+	}
 	return memConf, conf
+}
+
+func mustShutdown(t *testing.T, s Shutdownable) {
+	require.NoError(t, s.Shutdown(context.Background()))
 }
 
 func TestDistconfInt(t *testing.T) {
 	memConf, conf := makeConf()
-	defer conf.Close()
+	defer mustShutdown(t, conf)
 
 	// default
 	val := conf.Int("testval", 1)
@@ -88,7 +97,7 @@ func TestDistconfInt(t *testing.T) {
 
 func TestDistconfFloat(t *testing.T) {
 	memConf, conf := makeConf()
-	defer conf.Close()
+	defer mustShutdown(t, conf)
 
 	// default
 	val := conf.Float("testval", 3.14)
@@ -122,7 +131,7 @@ func TestDistconfFloat(t *testing.T) {
 
 func TestDistconfStr(t *testing.T) {
 	memConf, conf := makeConf()
-	defer conf.Close()
+	defer mustShutdown(t, conf)
 
 	// default
 	val := conf.Str("testval", "default")
@@ -153,7 +162,7 @@ func TestDistconfStr(t *testing.T) {
 
 func TestDistconfDuration(t *testing.T) {
 	memConf, conf := makeConf()
-	defer conf.Close()
+	defer mustShutdown(t, conf)
 
 	//default
 
@@ -187,7 +196,7 @@ func TestDistconfDuration(t *testing.T) {
 
 func TestDistconfBool(t *testing.T) {
 	memConf, conf := makeConf()
-	defer conf.Close()
+	defer mustShutdown(t, conf)
 
 	//default
 
@@ -224,7 +233,9 @@ func TestDistconfBool(t *testing.T) {
 }
 
 func TestDistconfErrorBackings(t *testing.T) {
-	conf := New([]Reader{&allErrorBacking{}})
+	conf := &Distconf{
+		Readers: []Reader{&allErrorBacking{}},
+	}
 
 	iVal := conf.Int("testval", 1)
 	assert.Equal(t, int64(1), iVal.Get())
@@ -259,7 +270,7 @@ func TestHooks(t *testing.T) {
 
 func TestDistconf_Info(t *testing.T) {
 	_, conf := makeConf()
-	defer conf.Close()
+	defer mustShutdown(t, conf)
 
 	conf.Bool("testbool", true)
 	conf.Str("teststr", "123")
