@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestEnvConf(t *testing.T) {
+func TestEnvironment_Read(t *testing.T) {
 	ctx := context.Background()
 	e := &Environment{}
 	b, err := e.Read(ctx, "not_in_env_i_hope_SDFSDFSDFSDFSDF")
