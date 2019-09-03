@@ -32,14 +32,15 @@ type Distconf struct {
 	// Readers are an ordered list of backends for DistConf to get configuration information from.  The list
 	// order is important as information from a first backend will be returned before the later ones.
 	Readers []Reader
-
-	varsMutex      sync.Mutex
-	infoMutex      sync.RWMutex
+	// How long to timeout out of band refresh calls triggered by Watch() callbacks.  Defaults to 1 second.
+	RefreshTimeout         time.Duration
+	varsMutex              sync.Mutex
+	infoMutex              sync.RWMutex
 	registeredWatchesMutex sync.Mutex
-	registeredVars map[string]*registeredVariableTracker
-	distInfos      map[string]distInfo
-	registeredWatches map[string][]Watcher
-	callerFunc     func(int) (uintptr, string, int, bool)
+	registeredVars         map[string]*registeredVariableTracker
+	distInfos              map[string]distInfo
+	registeredWatches      map[string][]Watcher
+	callerFunc             func(int) (uintptr, string, int, bool)
 }
 
 type registeredVariableTracker struct {
@@ -137,8 +138,8 @@ func (c *Distconf) Info() expvar.Var {
 	})
 }
 
-// Int object that can be referenced to get integer values from a backing config
-func (c *Distconf) Int(key string, defaultVal int64) *Int {
+// Int object that can be referenced to get integer values from a backing config.
+func (c *Distconf) Int(ctx context.Context, key string, defaultVal int64) *Int {
 	c.grabInfo(key)
 	s := &intConf{
 		defaultVal: defaultVal,
@@ -147,7 +148,7 @@ func (c *Distconf) Int(key string, defaultVal int64) *Int {
 		},
 	}
 	// Note: in race conditions 's' may not be the thing actually returned
-	ret, okCast := c.createOrGet(key, s).(*intConf)
+	ret, okCast := c.createOrGet(ctx, key, s).(*intConf)
 	if !okCast {
 		c.Hooks.onError("Registering key with multiple types!  FIX ME!!!!", key, nil)
 		return nil
@@ -156,7 +157,7 @@ func (c *Distconf) Int(key string, defaultVal int64) *Int {
 }
 
 // Float object that can be referenced to get float values from a backing config
-func (c *Distconf) Float(key string, defaultVal float64) *Float {
+func (c *Distconf) Float(ctx context.Context, key string, defaultVal float64) *Float {
 	c.grabInfo(key)
 	s := &floatConf{
 		defaultVal: defaultVal,
@@ -165,7 +166,7 @@ func (c *Distconf) Float(key string, defaultVal float64) *Float {
 		},
 	}
 	// Note: in race conditions 's' may not be the thing actually returned
-	ret, okCast := c.createOrGet(key, s).(*floatConf)
+	ret, okCast := c.createOrGet(ctx, key, s).(*floatConf)
 	if !okCast {
 		c.Hooks.onError("Registering key with multiple types!  FIX ME!!!!", key, nil)
 		return nil
@@ -174,14 +175,14 @@ func (c *Distconf) Float(key string, defaultVal float64) *Float {
 }
 
 // Str object that can be referenced to get string values from a backing config
-func (c *Distconf) Str(key string, defaultVal string) *Str {
+func (c *Distconf) Str(ctx context.Context, key string, defaultVal string) *Str {
 	c.grabInfo(key)
 	s := &strConf{
 		defaultVal: defaultVal,
 	}
 	s.currentVal.Store(defaultVal)
 	// Note: in race conditions 's' may not be the thing actually returned
-	ret, okCast := c.createOrGet(key, s).(*strConf)
+	ret, okCast := c.createOrGet(ctx, key, s).(*strConf)
 	if !okCast {
 		c.Hooks.onError("Registering key with multiple types!  FIX ME!!!!", key, nil)
 		return nil
@@ -190,7 +191,7 @@ func (c *Distconf) Str(key string, defaultVal string) *Str {
 }
 
 // Bool object that can be referenced to get boolean values from a backing config
-func (c *Distconf) Bool(key string, defaultVal bool) *Bool {
+func (c *Distconf) Bool(ctx context.Context, key string, defaultVal bool) *Bool {
 	c.grabInfo(key)
 	var defautlAsInt int32
 	if defaultVal {
@@ -206,7 +207,7 @@ func (c *Distconf) Bool(key string, defaultVal bool) *Bool {
 		},
 	}
 	// Note: in race conditions 's' may not be the thing actually returned
-	ret, okCast := c.createOrGet(key, s).(*boolConf)
+	ret, okCast := c.createOrGet(ctx, key, s).(*boolConf)
 	if !okCast {
 		c.Hooks.onError("Registering key with multiple types!  FIX ME!!!!", key, nil)
 		return nil
@@ -215,7 +216,7 @@ func (c *Distconf) Bool(key string, defaultVal bool) *Bool {
 }
 
 // Duration returns a duration object that calls ParseDuration() on the given key
-func (c *Distconf) Duration(key string, defaultVal time.Duration) *Duration {
+func (c *Distconf) Duration(ctx context.Context, key string, defaultVal time.Duration) *Duration {
 	c.grabInfo(key)
 	s := &durationConf{
 		defaultVal: defaultVal,
@@ -226,7 +227,7 @@ func (c *Distconf) Duration(key string, defaultVal time.Duration) *Duration {
 		originalKey: key,
 	}
 	// Note: in race conditions 's' may not be the thing actually returned
-	ret, okCast := c.createOrGet(key, s).(*durationConf)
+	ret, okCast := c.createOrGet(ctx, key, s).(*durationConf)
 	if !okCast {
 		c.Hooks.onError("Registering key with multiple types!  FIX ME!!!!", key, nil)
 		return nil
@@ -235,7 +236,8 @@ func (c *Distconf) Duration(key string, defaultVal time.Duration) *Duration {
 }
 
 // Shutdown this config framework's Readers.  Config variable results are undefined after this call.
-// Returns the error of the first reader to return an error.
+// Returns the error of the first reader to return an error.  While Watch itself doesn't take a context, shutdown
+// will stop calling future watches if context ends.
 func (c *Distconf) Shutdown(ctx context.Context) error {
 	c.varsMutex.Lock()
 	c.registeredWatchesMutex.Lock()
@@ -244,7 +246,12 @@ func (c *Distconf) Shutdown(ctx context.Context) error {
 	var ret error
 	for key, watches := range c.registeredWatches {
 		for _, watch := range watches {
-			if err := watch.Watch(key, nil); err != nil {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+			if err := watch.Watch(ctx, key, nil); err != nil {
 				c.Hooks.onError("error unregistering watch", key, err)
 				ret = err
 			}
@@ -253,7 +260,19 @@ func (c *Distconf) Shutdown(ctx context.Context) error {
 	return ret
 }
 
-func (c *Distconf) registerWatches(key string, watches []Watcher) {
+func (c *Distconf) watchCallback(key string) func() {
+	return func() {
+		timeout := c.RefreshTimeout
+		if timeout == 0 {
+			timeout = time.Second
+		}
+		refreshCtx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		c.Refresh(refreshCtx, key)
+	}
+}
+
+func (c *Distconf) registerWatches(ctx context.Context, key string, watches []Watcher) {
 	c.registeredWatchesMutex.Lock()
 	if c.registeredWatches == nil {
 		c.registeredWatches = make(map[string][]Watcher)
@@ -264,26 +283,24 @@ func (c *Distconf) registerWatches(key string, watches []Watcher) {
 	// Unlock early so we don't get in deadlock if backing.Watch() somehow executes code that gets back here
 	c.registeredWatchesMutex.Unlock()
 	for _, backing := range watches {
-		err := backing.Watch(key, func() {
-			c.Refresh(key)
-		})
+		err := backing.Watch(ctx, key, c.watchCallback(key))
 		if err != nil {
 			c.Hooks.onError("Unable to watch for config var", key, err)
 		}
 	}
 }
 
-func (c *Distconf) refresh(key string, configVar configVariable) {
+func (c *Distconf) refresh(ctx context.Context, key string, configVar configVariable) {
 	var dynamicReadersOnPath []Watcher
 	defer func() {
-		c.registerWatches(key, dynamicReadersOnPath)
+		c.registerWatches(ctx, key, dynamicReadersOnPath)
 	}()
 	for _, backing := range c.Readers {
 		if asW, ok := backing.(Watcher); ok {
 			dynamicReadersOnPath = append(dynamicReadersOnPath, asW)
 		}
 
-		v, e := backing.Read(key)
+		v, e := backing.Read(ctx, key)
 		if e != nil {
 			c.Hooks.onError("Unable to read from backing", key, e)
 			continue
@@ -306,7 +323,7 @@ func (c *Distconf) refresh(key string, configVar configVariable) {
 	return
 }
 
-func (c *Distconf) createOrGet(key string, defaultVar configVariable) configVariable {
+func (c *Distconf) createOrGet(ctx context.Context, key string, defaultVar configVariable) configVariable {
 	c.varsMutex.Lock()
 	rv, exists := c.registeredVars[key]
 	if !exists {
@@ -321,7 +338,7 @@ func (c *Distconf) createOrGet(key string, defaultVar configVariable) configVari
 	c.varsMutex.Unlock()
 
 	rv.hasInitialized.Do(func() {
-		c.refresh(key, rv.distvar)
+		c.refresh(ctx, key, rv.distvar)
 	})
 	return rv.distvar
 }
@@ -329,7 +346,7 @@ func (c *Distconf) createOrGet(key string, defaultVar configVariable) configVari
 // Refresh a single key from readers.  This will force a blocking Read from the Readers, in order, until one of them
 // has the key.  It will then update the distconf value for that key and trigger any update callbacks.  You do not
 // generally need to call this.  If your backends implement Watcher, they will trigger this for you.
-func (c *Distconf) Refresh(key string) {
+func (c *Distconf) Refresh(ctx context.Context, key string) {
 	c.varsMutex.Lock()
 	m, exists := c.registeredVars[key]
 	c.varsMutex.Unlock()
@@ -337,7 +354,7 @@ func (c *Distconf) Refresh(key string) {
 		c.Hooks.onError("Backing callback on variable that doesn't exist", key, nil)
 		return
 	}
-	c.refresh(key, m.distvar)
+	c.refresh(ctx, key, m.distvar)
 }
 
 // Reader can get a []byte value for a config key
@@ -346,7 +363,7 @@ type Reader interface {
 	// be thread safe, but is allowed to be slow or block.  That block will only happen
 	// on application startup.  An error will skip this source and fall back to another
 	// source in the chain.  If the value is not inside this reader, return nil, nil.
-	Read(key string) ([]byte, error)
+	Read(ctx context.Context, key string) ([]byte, error)
 }
 
 // Shutdownable is an optional interface of Reader that allows it to be gracefully shutdown.
@@ -364,5 +381,5 @@ type Watcher interface {
 	// Watch may be called multiple times for a single key.  Only the latest callback needs to be executed.
 	// It is possible callback may itself call watch.  Be careful with locking.
 	// If callback is nil, then we are trying to remove a previously registered callback.
-	Watch(key string, callback func()) error
+	Watch(ctx context.Context, key string, callback func()) error
 }

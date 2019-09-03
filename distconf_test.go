@@ -16,15 +16,17 @@ type allErrorBacking struct {
 
 var errNope = errors.New("nope")
 
-func (m *allErrorBacking) Read(key string) ([]byte, error) {
+var _ ReaderWriterWatcher = &allErrorBacking{}
+
+func (m *allErrorBacking) Read(ctx context.Context, key string) ([]byte, error) {
 	return nil, errNope
 }
 
-func (m *allErrorBacking) Write(key string, value []byte) error {
+func (m *allErrorBacking) Write(ctx context.Context, key string, value []byte) error {
 	return errNope
 }
 
-func (m *allErrorBacking) Watch(key string, callback func()) error {
+func (m *allErrorBacking) Watch(ctx context.Context, key string, callback func()) error {
 	return errNope
 }
 
@@ -44,12 +46,13 @@ func (a *allErrorconfigVariable) Type() distType {
 	return intType
 }
 
-type ReaderWriter interface {
+type ReaderWriterWatcher interface {
 	Reader
-	Write(key string, value []byte) error
+	Watcher
+	Write(ctx context.Context, key string, value []byte) error
 }
 
-func makeConf() (ReaderWriter, *Distconf) {
+func makeConf() (ReaderWriterWatcher, *Distconf) {
 	memConf := &Mem{}
 	conf := &Distconf{
 		Readers: []Reader{memConf},
@@ -66,7 +69,7 @@ func TestDistconfInt(t *testing.T) {
 	defer mustShutdown(t, conf)
 
 	// default
-	val := conf.Int("testval", 1)
+	val := conf.Int(context.Background(), "testval", 1)
 	assert.Equal(t, int64(1), val.Get())
 	totalWatches := 0
 	val.Watch(IntWatch(func(str *Int, oldValue int64) {
@@ -74,20 +77,20 @@ func TestDistconfInt(t *testing.T) {
 	}))
 
 	// update valid
-	require.NoError(t, memConf.Write("testval", []byte("2")))
+	require.NoError(t, memConf.Write(context.Background(), "testval", []byte("2")))
 	assert.Equal(t, int64(2), val.Get())
 
 	// check already registered
-	conf.Str("testval_other", "moo")
+	conf.Str(context.Background(), "testval_other", "moo")
 	var nilInt *Int
-	assert.Equal(t, nilInt, conf.Int("testval_other", 0))
+	assert.Equal(t, nilInt, conf.Int(context.Background(), "testval_other", 0))
 
 	// update to invalid
-	require.NoError(t, memConf.Write("testval", []byte("invalidint")))
+	require.NoError(t, memConf.Write(context.Background(), "testval", []byte("invalidint")))
 	assert.Equal(t, int64(2), val.Get())
 
 	// update to nil
-	require.NoError(t, memConf.Write("testval", nil))
+	require.NoError(t, memConf.Write(context.Background(), "testval", nil))
 	assert.Equal(t, int64(1), val.Get())
 
 	// check callback
@@ -100,7 +103,7 @@ func TestDistconfFloat(t *testing.T) {
 	defer mustShutdown(t, conf)
 
 	// default
-	val := conf.Float("testval", 3.14)
+	val := conf.Float(context.Background(), "testval", 3.14)
 	assert.Equal(t, float64(3.14), val.Get())
 	totalWatches := 0
 	val.Watch(FloatWatch(func(float *Float, oldValue float64) {
@@ -108,20 +111,20 @@ func TestDistconfFloat(t *testing.T) {
 	}))
 
 	// update to valid
-	require.NoError(t, memConf.Write("testval", []byte("4.771")))
+	require.NoError(t, memConf.Write(context.Background(), "testval", []byte("4.771")))
 	assert.Equal(t, float64(4.771), val.Get())
 
 	// check already registered
-	conf.Str("testval_other", "moo")
+	conf.Str(context.Background(), "testval_other", "moo")
 	var nilFloat *Float
-	assert.Equal(t, nilFloat, conf.Float("testval_other", 0.0))
+	assert.Equal(t, nilFloat, conf.Float(context.Background(), "testval_other", 0.0))
 
 	// update to invalid
-	require.NoError(t, memConf.Write("testval", []byte("invalidfloat")))
+	require.NoError(t, memConf.Write(context.Background(), "testval", []byte("invalidfloat")))
 	assert.Equal(t, float64(4.771), val.Get())
 
 	// update to nil
-	require.NoError(t, memConf.Write("testval", nil))
+	require.NoError(t, memConf.Write(context.Background(), "testval", nil))
 	assert.Equal(t, float64(3.14), val.Get())
 
 	// check callback
@@ -134,7 +137,7 @@ func TestDistconfStr(t *testing.T) {
 	defer mustShutdown(t, conf)
 
 	// default
-	val := conf.Str("testval", "default")
+	val := conf.Str(context.Background(), "testval", "default")
 	assert.Equal(t, "default", val.Get())
 	totalWatches := 0
 	val.Watch(StrWatch(func(str *Str, oldValue string) {
@@ -142,16 +145,16 @@ func TestDistconfStr(t *testing.T) {
 	}))
 
 	// update to valid
-	require.NoError(t, memConf.Write("testval", []byte("newval")))
+	require.NoError(t, memConf.Write(context.Background(), "testval", []byte("newval")))
 	assert.Equal(t, "newval", val.Get())
 
 	// check already registered
-	conf.Int("testval_other", 0)
+	conf.Int(context.Background(), "testval_other", 0)
 	var nilStr *Str
-	assert.Equal(t, nilStr, conf.Str("testval_other", ""))
+	assert.Equal(t, nilStr, conf.Str(context.Background(), "testval_other", ""))
 
 	// update to nil
-	require.NoError(t, memConf.Write("testval", nil))
+	require.NoError(t, memConf.Write(context.Background(), "testval", nil))
 	assert.Equal(t, "default", val.Get())
 
 	// check callback
@@ -161,12 +164,13 @@ func TestDistconfStr(t *testing.T) {
 }
 
 func TestDistconfDuration(t *testing.T) {
+	ctx := context.Background()
 	memConf, conf := makeConf()
 	defer mustShutdown(t, conf)
 
 	//default
 
-	val := conf.Duration("testval", time.Second)
+	val := conf.Duration(ctx, "testval", time.Second)
 	assert.Equal(t, time.Second, val.Get())
 	totalWatches := 0
 	val.Watch(DurationWatch(func(*Duration, time.Duration) {
@@ -174,20 +178,20 @@ func TestDistconfDuration(t *testing.T) {
 	}))
 
 	// update valid
-	require.NoError(t, memConf.Write("testval", []byte("10ms")))
+	require.NoError(t, memConf.Write(ctx, "testval", []byte("10ms")))
 	assert.Equal(t, time.Millisecond*10, val.Get())
 
 	// check already registered
-	conf.Str("testval_other", "moo")
+	conf.Str(ctx, "testval_other", "moo")
 	var nilDuration *Duration
-	assert.Equal(t, nilDuration, conf.Duration("testval_other", 0))
+	assert.Equal(t, nilDuration, conf.Duration(ctx, "testval_other", 0))
 
 	// update to invalid
-	require.NoError(t, memConf.Write("testval", []byte("abcd")))
+	require.NoError(t, memConf.Write(ctx, "testval", []byte("abcd")))
 	assert.Equal(t, time.Second, val.Get())
 
 	// update to nil
-	require.NoError(t, memConf.Write("testval", nil))
+	require.NoError(t, memConf.Write(ctx, "testval", nil))
 	assert.Equal(t, time.Second, val.Get())
 
 	assert.Equal(t, 2, totalWatches)
@@ -195,12 +199,13 @@ func TestDistconfDuration(t *testing.T) {
 }
 
 func TestDistconfBool(t *testing.T) {
+	ctx := context.Background()
 	memConf, conf := makeConf()
 	defer mustShutdown(t, conf)
 
 	//default
 
-	val := conf.Bool("testval", false)
+	val := conf.Bool(ctx, "testval", false)
 	assert.False(t, val.Get())
 	totalWatches := 0
 	val.Watch(BoolWatch(func(*Bool, bool) {
@@ -208,24 +213,24 @@ func TestDistconfBool(t *testing.T) {
 	}))
 
 	// update valid
-	require.NoError(t, memConf.Write("testval", []byte("true")))
+	require.NoError(t, memConf.Write(ctx, "testval", []byte("true")))
 	assert.True(t, val.Get())
 
 	// update valid
-	require.NoError(t, memConf.Write("testval", []byte("FALSE")))
+	require.NoError(t, memConf.Write(ctx, "testval", []byte("FALSE")))
 	assert.False(t, val.Get())
 
 	// check already registered
-	conf.Str("testval_other", "moo")
+	conf.Str(ctx, "testval_other", "moo")
 	var nilBool *Bool
-	assert.Equal(t, nilBool, conf.Bool("testval_other", true))
+	assert.Equal(t, nilBool, conf.Bool(ctx, "testval_other", true))
 
 	// update to invalid
-	require.NoError(t, memConf.Write("testval", []byte("__")))
+	require.NoError(t, memConf.Write(ctx, "testval", []byte("__")))
 	assert.False(t, val.Get())
 
 	// update to nil
-	require.NoError(t, memConf.Write("testval", nil))
+	require.NoError(t, memConf.Write(ctx, "testval", nil))
 	assert.False(t, val.Get())
 
 	assert.Equal(t, 2, totalWatches)
@@ -233,21 +238,21 @@ func TestDistconfBool(t *testing.T) {
 }
 
 func TestDistconfErrorBackings(t *testing.T) {
+	ctx := context.Background()
 	conf := &Distconf{
 		Readers: []Reader{&allErrorBacking{}},
 	}
 
-	iVal := conf.Int("testval", 1)
+	iVal := conf.Int(ctx, "testval", 1)
 	assert.Equal(t, int64(1), iVal.Get())
 
 	assert.NotPanics(t, func() {
-		conf.Refresh("not_in_map")
+		conf.Refresh(ctx, "not_in_map")
 	})
 
 	assert.NotPanics(t, func() {
-		conf.refresh("testval2", &allErrorconfigVariable{})
+		conf.Refresh(ctx, "testval2")
 	})
-
 }
 
 func testInfo(t *testing.T, dat map[string]distInfo, key string, val interface{}, dtype distType) {
@@ -269,14 +274,15 @@ func TestHooks(t *testing.T) {
 }
 
 func TestDistconf_Info(t *testing.T) {
+	ctx := context.Background()
 	_, conf := makeConf()
 	defer mustShutdown(t, conf)
 
-	conf.Bool("testbool", true)
-	conf.Str("teststr", "123")
-	conf.Int("testint", int64(12))
-	conf.Duration("testdur", time.Millisecond)
-	conf.Float("testfloat", float64(1.2))
+	conf.Bool(ctx, "testbool", true)
+	conf.Str(ctx, "teststr", "123")
+	conf.Int(ctx, "testint", int64(12))
+	conf.Duration(ctx, "testdur", time.Millisecond)
+	conf.Float(ctx, "testfloat", float64(1.2))
 
 	x := conf.Info()
 	assert.NotNil(t, x)
@@ -300,6 +306,6 @@ func TestDistconf_Info(t *testing.T) {
 		return 0, "", 0, false
 	}
 	assert.Equal(t, c, int64(0))
-	conf.Bool("testbool", true)
+	conf.Bool(ctx, "testbool", true)
 	assert.Equal(t, c, int64(1))
 }

@@ -1,6 +1,7 @@
 package distconf
 
 import (
+	"context"
 	"os"
 	"strings"
 )
@@ -12,7 +13,7 @@ type CommandLine struct {
 
 var _ Reader = &CommandLine{}
 
-func (p *CommandLine) Read(key string) ([]byte, error) {
+func (p *CommandLine) Read(_ context.Context, key string) ([]byte, error) {
 	if p.Source == nil {
 		p.Source = os.Args
 	}
