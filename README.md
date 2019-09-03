@@ -48,9 +48,7 @@ Distconf does all that
 
 ```go
     func ExampleDistconf_defaults() {
-        d := distconf.Distconf{
-            Readers: []distconf.Reader{},
-        }
+        d := distconf.Distconf{}
         x := d.Float("value", 1.1)
         fmt.Println(x.Get())
         // Output: 1.1
