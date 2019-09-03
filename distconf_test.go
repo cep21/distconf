@@ -64,7 +64,7 @@ func mustShutdown(t *testing.T, s Shutdownable) {
 	require.NoError(t, s.Shutdown(context.Background()))
 }
 
-func TestDistconfInt(t *testing.T) {
+func TestDistconf_Int(t *testing.T) {
 	memConf, conf := makeConf()
 	defer mustShutdown(t, conf)
 
@@ -98,7 +98,7 @@ func TestDistconfInt(t *testing.T) {
 	assert.Contains(t, conf.Var().String(), "testval")
 }
 
-func TestDistconfFloat(t *testing.T) {
+func TestDistconf_Float(t *testing.T) {
 	memConf, conf := makeConf()
 	defer mustShutdown(t, conf)
 
@@ -132,7 +132,7 @@ func TestDistconfFloat(t *testing.T) {
 	assert.Contains(t, conf.Var().String(), "testval")
 }
 
-func TestDistconfStr(t *testing.T) {
+func TestDistconf_Str(t *testing.T) {
 	memConf, conf := makeConf()
 	defer mustShutdown(t, conf)
 
@@ -163,7 +163,7 @@ func TestDistconfStr(t *testing.T) {
 
 }
 
-func TestDistconfDuration(t *testing.T) {
+func TestDistconf_Duration(t *testing.T) {
 	ctx := context.Background()
 	memConf, conf := makeConf()
 	defer mustShutdown(t, conf)
@@ -198,7 +198,7 @@ func TestDistconfDuration(t *testing.T) {
 	assert.Contains(t, conf.Var().String(), "testval")
 }
 
-func TestDistconfBool(t *testing.T) {
+func TestDistconf_Bool(t *testing.T) {
 	ctx := context.Background()
 	memConf, conf := makeConf()
 	defer mustShutdown(t, conf)
@@ -237,7 +237,7 @@ func TestDistconfBool(t *testing.T) {
 	assert.Contains(t, conf.Var().String(), "testval")
 }
 
-func TestDistconfErrorBackings(t *testing.T) {
+func TestDistconf_errors(t *testing.T) {
 	ctx := context.Background()
 	conf := &Distconf{
 		Readers: []Reader{&allErrorBacking{}},
