@@ -9,7 +9,11 @@ import (
 	"time"
 )
 
+// Hooks are optional callbacks that let you get information about the internal workings and errors of distconf.
 type Hooks struct {
+	// OnError is called whenever there is an error doing something internally to distconf, but the error itself
+	// cannot be directly returned to the caller.
+	// distconfKey is the key that caused the error.
 	OnError func(msg string, distconfKey string, err error)
 }
 
@@ -19,9 +23,13 @@ func (h Hooks) onError(msg string, distconfKey string, err error) {
 	}
 }
 
-// Distconf gets configuration data from the first backing that has it
+// Distconf gets configuration data from the first backing that has it.  It is a race condition to modify Hooks
+// or Readers after you've started using Distconf.
 type Distconf struct {
+	// Hooks are optional callbacks that let you get information about the internal workings and errors of distconf.
 	Hooks   Hooks
+	// Readers are an ordered list of backends for DistConf to get configuration information from.  The list
+	// order is important as information from a first backend will be returned before the later ones.
 	Readers []Reader
 
 	varsMutex      sync.Mutex
