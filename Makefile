@@ -20,7 +20,6 @@ codecov_coverage: test_coverage
 # Format your code.  Uses both gofmt and goimports
 format:
 	gofmt -s -w ./..
-	find . -iname '*.go' -print0 | xargs -0 goimports -w
 
 # Lint code for static code checking.  Uses golangci-lint
 lint:

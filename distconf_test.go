@@ -30,22 +30,6 @@ func (m *allErrorBacking) Watch(ctx context.Context, key string, callback func()
 	return errNope
 }
 
-type allErrorconfigVariable struct {
-}
-
-func (a *allErrorconfigVariable) Update(newValue []byte) error {
-	return errNope
-}
-func (a *allErrorconfigVariable) GenericGet() interface{} {
-	return errNope
-}
-func (a *allErrorconfigVariable) GenericGetDefault() interface{} {
-	return errNope
-}
-func (a *allErrorconfigVariable) Type() distType {
-	return intType
-}
-
 type ReaderWriterWatcher interface {
 	Reader
 	Watcher

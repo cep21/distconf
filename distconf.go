@@ -277,9 +277,7 @@ func (c *Distconf) registerWatches(ctx context.Context, key string, watches []Wa
 	if c.registeredWatches == nil {
 		c.registeredWatches = make(map[string][]Watcher)
 	}
-	for _, w := range watches {
-		c.registeredWatches[key] = append(c.registeredWatches[key], w)
-	}
+	c.registeredWatches[key] = append(c.registeredWatches[key], watches...)
 	// Unlock early so we don't get in deadlock if backing.Watch() somehow executes code that gets back here
 	c.registeredWatchesMutex.Unlock()
 	for _, backing := range watches {
@@ -319,8 +317,6 @@ func (c *Distconf) refresh(ctx context.Context, key string, configVar configVari
 	if e != nil {
 		c.Hooks.onError("Unable to set bytes to nil/clear", key, e)
 	}
-
-	return
 }
 
 func (c *Distconf) createOrGet(ctx context.Context, key string, defaultVar configVariable) configVariable {
