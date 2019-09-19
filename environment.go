@@ -6,7 +6,6 @@ import (
 )
 
 type Environment struct {
-	osGetenv func(key string) string
 }
 
 var _ Reader = &CommandLine{}
